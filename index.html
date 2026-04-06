@@ -144,24 +144,20 @@
     const W = canvas.width;
     const H = canvas.height;
 
-    // Game state
-    let state = 'idle'; // idle | playing | paused | dead | win | gameover
+    let state = 'idle';
     let score = 0;
     let lives = 3;
     let level = 1;
     let animId = null;
 
-    // Paddle
     const PADDLE_H = 12;
     const PADDLE_W_BASE = 90;
     let paddle = { x: W / 2, w: PADDLE_W_BASE, y: H - 36, speed: 7 };
 
-    // Ball
     const BALL_R = 7;
     let ball = {};
     const BASE_SPEED = 4;
 
-    // Blocks
     const BLOCK_COLS = 8;
     const BLOCK_ROWS = 5;
     const BLOCK_W = 50;
@@ -171,11 +167,9 @@
     const BLOCK_OFFSET_Y = 60;
     let blocks = [];
 
-    // Input
     const keys = {};
     let mouseX = null;
 
-    // Colors per row
     const ROW_COLORS = [
       ['#ff4466', '#ff6688'],
       ['#ff8800', '#ffaa33'],
@@ -201,7 +195,7 @@
       blocks = [];
       for (let r = 0; r < BLOCK_ROWS; r++) {
         for (let c = 0; c < BLOCK_COLS; c++) {
-          const hp = r < 2 ? 2 : 1; // top 2 rows need 2 hits
+          const hp = r < 2 ? 2 : 1;
           blocks.push({
             x: BLOCK_OFFSET_X + c * (BLOCK_W + BLOCK_GAP),
             y: BLOCK_OFFSET_Y + r * (BLOCK_H + BLOCK_GAP),
@@ -250,8 +244,6 @@
       overlay.style.display = 'flex';
     }
 
-    // ── Drawing ──────────────────────────────────────────────
-
     function drawPaddle() {
       const px = paddle.x - paddle.w / 2;
       const grad = ctx.createLinearGradient(px, paddle.y, px, paddle.y + PADDLE_H);
@@ -296,8 +288,6 @@
       }
     }
 
-    // ── Physics ───────────────────────────────────────────────
-
     function movePaddle() {
       if (mouseX !== null) {
         paddle.x = Math.max(paddle.w / 2, Math.min(W - paddle.w / 2, mouseX));
@@ -322,12 +312,10 @@
       ball.x += ball.vx;
       ball.y += ball.vy;
 
-      // Wall bounces
       if (ball.x - ball.r < 0) { ball.x = ball.r; ball.vx = Math.abs(ball.vx); }
       if (ball.x + ball.r > W) { ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx); }
       if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy = Math.abs(ball.vy); }
 
-      // Paddle collision
       const px = paddle.x - paddle.w / 2;
       if (
         ball.vy > 0 &&
@@ -337,7 +325,6 @@
         ball.x <= px + paddle.w + ball.r
       ) {
         ball.y = paddle.y - ball.r;
-        // Angle based on hit position
         const rel = (ball.x - paddle.x) / (paddle.w / 2);
         const angle = rel * 65 * (Math.PI / 180);
         const speed = Math.hypot(ball.vx, ball.vy);
@@ -345,7 +332,6 @@
         ball.vy = -speed * Math.cos(angle);
       }
 
-      // Block collision
       for (const b of blocks) {
         if (b.hp <= 0) continue;
         if (
@@ -357,8 +343,6 @@
           b.hp--;
           score += b.hp === 0 ? 20 : 10;
           updateHUD();
-
-          // Determine bounce axis
           const overlapL = (ball.x + ball.r) - b.x;
           const overlapR = (b.x + b.w) - (ball.x - ball.r);
           const overlapT = (ball.y + ball.r) - b.y;
@@ -371,7 +355,6 @@
         }
       }
 
-      // Ball out of bounds
       if (ball.y - ball.r > H) {
         lives--;
         updateHUD();
@@ -384,7 +367,6 @@
         }
       }
 
-      // Check win
       if (blocks.every(b => b.hp <= 0)) {
         score += level * 100;
         updateHUD();
@@ -398,8 +380,6 @@
       }
     }
 
-    // ── Main loop ─────────────────────────────────────────────
-
     function loop() {
       ctx.clearRect(0, 0, W, H);
       drawBlocks();
@@ -412,8 +392,6 @@
         animId = requestAnimationFrame(loop);
       }
     }
-
-    // ── Events ────────────────────────────────────────────────
 
     document.addEventListener('keydown', e => {
       keys[e.key] = true;
@@ -468,7 +446,6 @@
       }
     });
 
-    // Initial render (static)
     initBlocks();
     initBall();
     ctx.clearRect(0, 0, W, H);
