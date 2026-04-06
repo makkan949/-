@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>블럭깨기</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #0a0a1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      color: #fff;
+    }
+
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 12px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, #00d4ff, #ff00aa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    #scoreboard {
+      display: flex;
+      gap: 40px;
+      margin-bottom: 12px;
+      font-size: 1rem;
+      letter-spacing: 2px;
+    }
+
+    #scoreboard span {
+      color: #aaa;
+    }
+
+    #scoreboard strong {
+      color: #fff;
+    }
+
+    #canvas-wrapper {
+      position: relative;
+    }
+
+    canvas {
+      display: block;
+      border: 2px solid #333;
+      border-radius: 4px;
+      background: #070715;
+      box-shadow: 0 0 40px rgba(0, 212, 255, 0.15);
+    }
+
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(7, 7, 21, 0.85);
+      border-radius: 4px;
+    }
+
+    #overlay h2 {
+      font-size: 2rem;
+      margin-bottom: 8px;
+      letter-spacing: 3px;
+    }
+
+    #overlay p {
+      color: #aaa;
+      margin-bottom: 24px;
+      font-size: 0.9rem;
+    }
+
+    #overlay button {
+      padding: 12px 36px;
+      font-size: 1rem;
+      letter-spacing: 2px;
+      border: none;
+      border-radius: 30px;
+      background: linear-gradient(90deg, #00d4ff, #ff00aa);
+      color: #fff;
+      cursor: pointer;
+      font-weight: bold;
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+
+    #overlay button:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+    }
+
+    #controls {
+      margin-top: 12px;
+      color: #555;
+      font-size: 0.8rem;
+      letter-spacing: 1px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>블럭깨기</h1>
+
+  <div id="scoreboard">
+    <div><span>점수 </span><strong id="score-val">0</strong></div>
+    <div><span>레벨 </span><strong id="level-val">1</strong></div>
+    <div><span>목숨 </span><strong id="lives-val">3</strong></div>
+  </div>
+
+  <div id="canvas-wrapper">
+    <canvas id="game" width="480" height="520"></canvas>
+    <div id="overlay">
+      <h2 id="overlay-title">블럭깨기</h2>
+      <p id="overlay-msg">스페이스바 또는 버튼을 눌러 시작</p>
+      <button id="start-btn">시작하기</button>
+    </div>
+  </div>
+
+  <div id="controls">← → 방향키 또는 마우스로 패들 이동 &nbsp;|&nbsp; 스페이스바로 시작/일시정지</div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlayMsg = document.getElementById('overlay-msg');
+    const startBtn = document.getElementById('start-btn');
+    const scoreVal = document.getElementById('score-val');
+    const levelVal = document.getElementById('level-val');
+    const livesVal = document.getElementById('lives-val');
+
+    const W = canvas.width;
+    const H = canvas.height;
+
+    // Game state
+    let state = 'idle'; // idle | playing | paused | dead | win | gameover
+    let score = 0;
+    let lives = 3;
+    let level = 1;
+    let animId = null;
+
+    // Paddle
+    const PADDLE_H = 12;
+    const PADDLE_W_BASE = 90;
+    let paddle = { x: W / 2, w: PADDLE_W_BASE, y: H - 36, speed: 7 };
+
+    // Ball
+    const BALL_R = 7;
+    let ball = {};
+    const BASE_SPEED = 4;
+
+    // Blocks
+    const BLOCK_COLS = 8;
+    const BLOCK_ROWS = 5;
+    const BLOCK_W = 50;
+    const BLOCK_H = 18;
+    const BLOCK_GAP = 4;
+    const BLOCK_OFFSET_X = (W - BLOCK_COLS * (BLOCK_W + BLOCK_GAP) + BLOCK_GAP) / 2;
+    const BLOCK_OFFSET_Y = 60;
+    let blocks = [];
+
+    // Input
+    const keys = {};
+    let mouseX = null;
+
+    // Colors per row
+    const ROW_COLORS = [
+      ['#ff4466', '#ff6688'],
+      ['#ff8800', '#ffaa33'],
+      ['#ffdd00', '#ffee55'],
+      ['#44cc44', '#66ee66'],
+      ['#00aaff', '#33ccff'],
+    ];
+
+    function initBall(speedMult = 1) {
+      const angle = (Math.random() * 60 + 60) * (Math.PI / 180);
+      const speed = BASE_SPEED + (level - 1) * 0.4;
+      ball = {
+        x: paddle.x,
+        y: paddle.y - BALL_R - 2,
+        vx: Math.cos(angle) * speed * speedMult * (Math.random() < 0.5 ? 1 : -1),
+        vy: -Math.sin(angle) * speed * speedMult,
+        r: BALL_R,
+        attached: true,
+      };
+    }
+
+    function initBlocks() {
+      blocks = [];
+      for (let r = 0; r < BLOCK_ROWS; r++) {
+        for (let c = 0; c < BLOCK_COLS; c++) {
+          const hp = r < 2 ? 2 : 1; // top 2 rows need 2 hits
+          blocks.push({
+            x: BLOCK_OFFSET_X + c * (BLOCK_W + BLOCK_GAP),
+            y: BLOCK_OFFSET_Y + r * (BLOCK_H + BLOCK_GAP),
+            w: BLOCK_W,
+            h: BLOCK_H,
+            hp,
+            maxHp: hp,
+            color1: ROW_COLORS[r % ROW_COLORS.length][0],
+            color2: ROW_COLORS[r % ROW_COLORS.length][1],
+          });
+        }
+      }
+    }
+
+    function startGame() {
+      score = 0;
+      lives = 3;
+      level = 1;
+      paddle.x = W / 2;
+      paddle.w = PADDLE_W_BASE;
+      initBlocks();
+      initBall();
+      updateHUD();
+      overlay.style.display = 'none';
+      state = 'playing';
+      loop();
+    }
+
+    function nextLevel() {
+      level++;
+      initBlocks();
+      initBall();
+      updateHUD();
+    }
+
+    function updateHUD() {
+      scoreVal.textContent = score;
+      levelVal.textContent = level;
+      livesVal.textContent = lives;
+    }
+
+    function showOverlay(title, msg, btnText) {
+      overlayTitle.textContent = title;
+      overlayMsg.textContent = msg;
+      startBtn.textContent = btnText;
+      overlay.style.display = 'flex';
+    }
+
+    // ── Drawing ──────────────────────────────────────────────
+
+    function drawPaddle() {
+      const px = paddle.x - paddle.w / 2;
+      const grad = ctx.createLinearGradient(px, paddle.y, px, paddle.y + PADDLE_H);
+      grad.addColorStop(0, '#00d4ff');
+      grad.addColorStop(1, '#0077aa');
+      ctx.beginPath();
+      ctx.roundRect(px, paddle.y, paddle.w, PADDLE_H, 6);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    function drawBall() {
+      const grad = ctx.createRadialGradient(ball.x - 2, ball.y - 2, 1, ball.x, ball.y, ball.r);
+      grad.addColorStop(0, '#ffffff');
+      grad.addColorStop(0.4, '#00d4ff');
+      grad.addColorStop(1, '#0044aa');
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
+
+    function drawBlocks() {
+      for (const b of blocks) {
+        if (b.hp <= 0) continue;
+        const alpha = b.hp === b.maxHp ? 1 : 0.5;
+        ctx.globalAlpha = alpha;
+        const grad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+        grad.addColorStop(0, b.color1);
+        grad.addColorStop(1, b.color2);
+        ctx.beginPath();
+        ctx.roundRect(b.x, b.y, b.w, b.h, 3);
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // ── Physics ───────────────────────────────────────────────
+
+    function movePaddle() {
+      if (mouseX !== null) {
+        paddle.x = Math.max(paddle.w / 2, Math.min(W - paddle.w / 2, mouseX));
+      } else {
+        if (keys['ArrowLeft'] || keys['a']) paddle.x = Math.max(paddle.w / 2, paddle.x - paddle.speed);
+        if (keys['ArrowRight'] || keys['d']) paddle.x = Math.min(W - paddle.w / 2, paddle.x + paddle.speed);
+      }
+      if (ball.attached) {
+        ball.x = paddle.x;
+      }
+    }
+
+    function launchBall() {
+      if (ball.attached) {
+        ball.attached = false;
+      }
+    }
+
+    function moveBall() {
+      if (ball.attached) return;
+
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+
+      // Wall bounces
+      if (ball.x - ball.r < 0) { ball.x = ball.r; ball.vx = Math.abs(ball.vx); }
+      if (ball.x + ball.r > W) { ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx); }
+      if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy = Math.abs(ball.vy); }
+
+      // Paddle collision
+      const px = paddle.x - paddle.w / 2;
+      if (
+        ball.vy > 0 &&
+        ball.y + ball.r >= paddle.y &&
+        ball.y + ball.r <= paddle.y + PADDLE_H + 4 &&
+        ball.x >= px - ball.r &&
+        ball.x <= px + paddle.w + ball.r
+      ) {
+        ball.y = paddle.y - ball.r;
+        // Angle based on hit position
+        const rel = (ball.x - paddle.x) / (paddle.w / 2);
+        const angle = rel * 65 * (Math.PI / 180);
+        const speed = Math.hypot(ball.vx, ball.vy);
+        ball.vx = speed * Math.sin(angle);
+        ball.vy = -speed * Math.cos(angle);
+      }
+
+      // Block collision
+      for (const b of blocks) {
+        if (b.hp <= 0) continue;
+        if (
+          ball.x + ball.r > b.x &&
+          ball.x - ball.r < b.x + b.w &&
+          ball.y + ball.r > b.y &&
+          ball.y - ball.r < b.y + b.h
+        ) {
+          b.hp--;
+          score += b.hp === 0 ? 20 : 10;
+          updateHUD();
+
+          // Determine bounce axis
+          const overlapL = (ball.x + ball.r) - b.x;
+          const overlapR = (b.x + b.w) - (ball.x - ball.r);
+          const overlapT = (ball.y + ball.r) - b.y;
+          const overlapB = (b.y + b.h) - (ball.y - ball.r);
+          const minH = Math.min(overlapL, overlapR);
+          const minV = Math.min(overlapT, overlapB);
+          if (minH < minV) ball.vx = -ball.vx;
+          else ball.vy = -ball.vy;
+          break;
+        }
+      }
+
+      // Ball out of bounds
+      if (ball.y - ball.r > H) {
+        lives--;
+        updateHUD();
+        if (lives <= 0) {
+          state = 'gameover';
+          showOverlay('게임 오버', `최종 점수: ${score}`, '다시 시작');
+        } else {
+          initBall();
+          state = 'playing';
+        }
+      }
+
+      // Check win
+      if (blocks.every(b => b.hp <= 0)) {
+        score += level * 100;
+        updateHUD();
+        if (level >= 5) {
+          state = 'win';
+          showOverlay('클리어!', `최종 점수: ${score}`, '처음부터');
+        } else {
+          showOverlay(`레벨 ${level} 클리어!`, `다음 레벨로 이동합니다`, '계속하기');
+          state = 'levelup';
+        }
+      }
+    }
+
+    // ── Main loop ─────────────────────────────────────────────
+
+    function loop() {
+      ctx.clearRect(0, 0, W, H);
+      drawBlocks();
+      drawPaddle();
+      drawBall();
+
+      if (state === 'playing') {
+        movePaddle();
+        moveBall();
+        animId = requestAnimationFrame(loop);
+      }
+    }
+
+    // ── Events ────────────────────────────────────────────────
+
+    document.addEventListener('keydown', e => {
+      keys[e.key] = true;
+      if (e.key === ' ') {
+        e.preventDefault();
+        if (state === 'idle' || state === 'gameover' || state === 'win') {
+          startGame();
+        } else if (state === 'playing') {
+          if (ball.attached) launchBall();
+          else {
+            state = 'paused';
+            showOverlay('일시정지', '스페이스바로 재개', '재개');
+          }
+        } else if (state === 'paused') {
+          overlay.style.display = 'none';
+          state = 'playing';
+          loop();
+        } else if (state === 'levelup') {
+          overlay.style.display = 'none';
+          nextLevel();
+          state = 'playing';
+          loop();
+        }
+      }
+    });
+
+    document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = e.clientX - rect.left;
+    });
+
+    canvas.addEventListener('mouseleave', () => { mouseX = null; });
+
+    canvas.addEventListener('click', () => {
+      if (state === 'playing' && ball.attached) launchBall();
+    });
+
+    startBtn.addEventListener('click', () => {
+      if (state === 'idle' || state === 'gameover' || state === 'win') {
+        startGame();
+      } else if (state === 'paused') {
+        overlay.style.display = 'none';
+        state = 'playing';
+        loop();
+      } else if (state === 'levelup') {
+        overlay.style.display = 'none';
+        nextLevel();
+        state = 'playing';
+        loop();
+      }
+    });
+
+    // Initial render (static)
+    initBlocks();
+    initBall();
+    ctx.clearRect(0, 0, W, H);
+    drawBlocks();
+    drawPaddle();
+    drawBall();
+  </script>
+</body>
+</html>
